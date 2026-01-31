@@ -1,0 +1,106 @@
+<!ELEMENT kuhul-lora (preset, adapter-lattice?, adapter-set)>
+<!ATTLIST kuhul-lora
+  version CDATA #REQUIRED
+  status (frozen|draft|deprecated) "frozen">
+
+<!ELEMENT preset (model, geometry, execution)>
+<!ATTLIST preset
+  id CDATA #REQUIRED>
+
+<!ELEMENT model (constants, targets)>
+<!ATTLIST model
+  id CDATA #REQUIRED>
+
+<!ELEMENT constants (hidden-size, num-layers, qkv-size, attention-heads, head-dim, default-lora-rank)>
+<!ELEMENT hidden-size EMPTY>
+<!ELEMENT num-layers EMPTY>
+<!ELEMENT qkv-size EMPTY>
+<!ELEMENT attention-heads EMPTY>
+<!ELEMENT head-dim EMPTY>
+<!ELEMENT default-lora-rank EMPTY>
+<!ATTLIST hidden-size value CDATA #REQUIRED>
+<!ATTLIST num-layers value CDATA #REQUIRED>
+<!ATTLIST qkv-size value CDATA #REQUIRED>
+<!ATTLIST attention-heads value CDATA #REQUIRED>
+<!ATTLIST head-dim value CDATA #REQUIRED>
+<!ATTLIST default-lora-rank value CDATA #REQUIRED>
+
+<!ELEMENT targets (target+)>
+<!ELEMENT target EMPTY>
+<!ATTLIST target
+  name CDATA #REQUIRED
+  rows CDATA #REQUIRED
+  cols CDATA #REQUIRED
+  required (true|false) "false">
+
+<!ELEMENT geometry (space, basis, rank-default, normalization)>
+<!ELEMENT space EMPTY>
+<!ELEMENT basis EMPTY>
+<!ELEMENT rank-default EMPTY>
+<!ELEMENT normalization EMPTY>
+<!ATTLIST space dimensions CDATA #REQUIRED>
+<!ATTLIST basis type CDATA #REQUIRED>
+<!ATTLIST rank-default value CDATA #REQUIRED>
+<!ATTLIST normalization method CDATA #REQUIRED>
+
+<!ELEMENT execution (mode, mutation, base-weights, precision)>
+<!ELEMENT mode EMPTY>
+<!ELEMENT mutation EMPTY>
+<!ELEMENT base-weights EMPTY>
+<!ELEMENT precision EMPTY>
+<!ATTLIST mode value CDATA #REQUIRED>
+<!ATTLIST mutation value CDATA #REQUIRED>
+<!ATTLIST base-weights value CDATA #REQUIRED>
+<!ATTLIST precision value CDATA #REQUIRED>
+
+<!ELEMENT adapter-lattice (popularity, reuse)>
+<!ELEMENT popularity (formula, weights)>
+<!ELEMENT formula (#PCDATA)>
+<!ELEMENT weights (downloads, forks, likes)>
+<!ELEMENT downloads EMPTY>
+<!ELEMENT forks EMPTY>
+<!ELEMENT likes EMPTY>
+<!ATTLIST downloads weight CDATA #REQUIRED>
+<!ATTLIST forks weight CDATA #REQUIRED>
+<!ATTLIST likes weight CDATA #REQUIRED>
+
+<!ELEMENT reuse (cooccurrence-collapse, similarity-threshold)>
+<!ELEMENT cooccurrence-collapse EMPTY>
+<!ELEMENT similarity-threshold EMPTY>
+<!ATTLIST cooccurrence-collapse enabled (true|false) "true">
+<!ATTLIST similarity-threshold value CDATA #REQUIRED>
+
+<!ELEMENT adapter-set (adapter+)>
+
+<!ELEMENT adapter (binding, rank, scale?, projections)>
+<!ATTLIST adapter
+  id CDATA #REQUIRED>
+
+<!ELEMENT binding EMPTY>
+<!ATTLIST binding
+  model CDATA #REQUIRED
+  layer CDATA #REQUIRED
+  target CDATA #REQUIRED>
+
+<!ELEMENT rank EMPTY>
+<!ATTLIST rank
+  value CDATA #REQUIRED>
+
+<!ELEMENT scale EMPTY>
+<!ATTLIST scale
+  alpha CDATA #REQUIRED>
+
+<!ELEMENT projections (projection+)>
+
+<!ELEMENT projection (A, B)>
+<!ATTLIST projection
+  index CDATA #REQUIRED>
+
+<!ELEMENT A (svg:path)>
+<!ELEMENT B (svg:path)>
+
+<!ELEMENT svg:path EMPTY>
+<!ATTLIST svg:path
+  d CDATA #REQUIRED
+  dim CDATA #REQUIRED
+  encoding CDATA #REQUIRED>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE kuhul-lora SYSTEM "kuhul.dtd">
+<kuhul-lora xmlns:svg="http://www.w3.org/2000/svg" version="1.0" status="frozen">
+  <preset id="phi-2">
+    <model id="microsoft/phi-2">
+      <constants>
+        <hidden-size value="2560"/>
+        <num-layers value="32"/>
+        <qkv-size value="7680"/>
+        <attention-heads value="32"/>
+        <head-dim value="80"/>
+        <default-lora-rank value="32"/>
+      </constants>
+      <targets>
+        <target name="mixer.Wqkv" rows="7680" cols="2560" required="true"/>
+        <target name="mixer.out_proj" rows="2560" cols="2560" required="true"/>
+        <target name="mlp.fc1" rows="10240" cols="2560" required="false"/>
+        <target name="mlp.fc2" rows="2560" cols="10240" required="false"/>
+      </targets>
+    </model>
+    <geometry>
+      <space dimensions="3"/>
+      <basis type="bezier-cubic"/>
+      <rank-default value="32"/>
+      <normalization method="layerwise"/>
+    </geometry>
+    <execution>
+      <mode value="inference-only"/>
+      <mutation value="adapter-delta"/>
+      <base-weights value="frozen"/>
+      <precision value="fp16"/>
+    </execution>
+  </preset>
+
+  <adapter-lattice>
+    <popularity>
+      <formula>log(downloads + 1) + 0.5 * forks + 0.2 * likes</formula>
+      <weights>
+        <downloads weight="1.0"/>
+        <forks weight="0.5"/>
+        <likes weight="0.2"/>
+      </weights>
+    </popularity>
+    <reuse>
+      <cooccurrence-collapse enabled="true"/>
+      <similarity-threshold value="0.9"/>
+    </reuse>
+  </adapter-lattice>
+
+  <adapter-set>
+    <adapter id="lora_chat_h3_Wqkv">
+      <binding model="microsoft/phi-2" layer="transformer.h.3" target="mixer.Wqkv"/>
+      <rank value="32"/>
+      <scale alpha="16.0"/>
+      <projections>
+        <projection index="0">
+          <A>
+            <svg:path d="M0,0 C0.1,0.2 0.3,0.4 0.5,0.6" dim="2560" encoding="bezier"/>
+          </A>
+          <B>
+            <svg:path d="M0,0 C0.2,0.1 0.4,0.3 0.6,0.5" dim="7680" encoding="bezier"/>
+          </B>
+        </projection>
+        <projection index="1">
+          <A>
+            <svg:path d="M0,0 C0.15,0.25 0.35,0.45 0.55,0.65" dim="2560" encoding="bezier"/>
+          </A>
+          <B>
+            <svg:path d="M0,0 C0.25,0.15 0.45,0.35 0.65,0.55" dim="7680" encoding="bezier"/>
+          </B>
+        </projection>
+      </projections>
+    </adapter>
+  </adapter-set>
+</kuhul-lora>
