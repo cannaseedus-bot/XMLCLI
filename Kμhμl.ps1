@@ -4010,6 +4010,60 @@ function Save-Config {
     $Config | ConvertTo-Json -Depth 10 | Set-Content $CONFIG_FILE
 }
 
+function Get-ApiKey-ConfigKey {
+    param([string]$Provider)
+
+    switch ($Provider) {
+        "ollama-cloud" { return "ollama-cloud" }
+        "openai" { return "openai" }
+        "anthropic" { return "anthropic" }
+        "google" { return "google" }
+        "custom" { return "custom" }
+        default { return $Provider }
+    }
+}
+
+function Ensure-ApiKey {
+    param(
+        [string]$Provider,
+        [switch]$ForcePrompt
+    )
+
+    $configKey = Get-ApiKey-ConfigKey -Provider $Provider
+    $existingKey = $null
+
+    if ($script:config.api_keys.ContainsKey($configKey)) {
+        $existingKey = $script:config.api_keys[$configKey]
+    } elseif ($Provider -eq "ollama-cloud" -and $script:config.api_keys.ContainsKey("ollama_cloud")) {
+        $existingKey = $script:config.api_keys["ollama_cloud"]
+        if ($existingKey) {
+            $script:config.api_keys[$configKey] = $existingKey
+            $script:config.api_keys.Remove("ollama_cloud")
+            Save-Config -Config $script:config
+        }
+    }
+
+    if (-not $ForcePrompt -and $existingKey) {
+        return $existingKey
+    }
+
+    Write-TUI "API key required for $Provider. Please enter it now." -Type warning
+    $key = Read-Host "Enter $Provider API key" -AsSecureString
+    $plainKey = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($key)
+    )
+
+    if ([string]::IsNullOrWhiteSpace($plainKey)) {
+        Write-TUI "No API key provided for $Provider" -Type error
+        return $null
+    }
+
+    $script:config.api_keys[$configKey] = $plainKey
+    Save-Config -Config $script:config
+    Write-TUI "$Provider API key saved" -Type success
+    return $plainKey
+}
+
 function Get-Model-Info {
     param([string]$ModelKey)
 
@@ -4213,6 +4267,14 @@ function Invoke-AI-Model {
     param($ModelInfo, $Messages)
 
     try {
+        $providersNeedingKeys = @("ollama-cloud", "openai", "anthropic", "google", "custom")
+        if ($providersNeedingKeys -contains $ModelInfo.provider) {
+            $apiKey = Ensure-ApiKey -Provider $ModelInfo.provider
+            if (-not $apiKey) {
+                return @{ success = $false; error = "Missing API key for provider: $($ModelInfo.provider)" }
+            }
+        }
+
         switch ($ModelInfo.provider) {
             "ollama-cloud" {
                 return Invoke-Ollama-Cloud -ModelInfo $ModelInfo -Messages $Messages
@@ -4238,14 +4300,9 @@ function Invoke-AI-Model {
 function Invoke-Ollama-Cloud {
     param($ModelInfo, $Messages)
 
-    $apiKey = $script:config.api_keys.ollama_cloud
+    $apiKey = Ensure-ApiKey -Provider "ollama-cloud"
     if (-not $apiKey) {
         return @{ success = $false; error = "Ollama Cloud API key not configured" }
-    }
-
-    $headers = @{
-        "Authorization" = "Bearer $apiKey"
-        "Content-Type" = "application/json"
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
@@ -4260,11 +4317,40 @@ function Invoke-Ollama-Cloud {
         }
     } | ConvertTo-Json -Depth 10
 
-    $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
-        -Method Post `
-        -Headers $headers `
-        -Body $body `
-        -TimeoutSec 30
+    $headers = @{
+        "Authorization" = "Bearer $apiKey"
+        "Content-Type" = "application/json"
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
+            -Method Post `
+            -Headers $headers `
+            -Body $body `
+            -TimeoutSec 30
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+
+        if ($statusCode -in 401, 403 -or $_.Exception.Message -match "Unauthorized|Forbidden|401|403") {
+            Write-TUI "Authorization failed. Please update your Ollama Cloud API key." -Type warning
+            $apiKey = Ensure-ApiKey -Provider "ollama-cloud" -ForcePrompt
+            if ($apiKey) {
+                $headers["Authorization"] = "Bearer $apiKey"
+                $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
+                    -Method Post `
+                    -Headers $headers `
+                    -Body $body `
+                    -TimeoutSec 30
+            } else {
+                return @{ success = $false; error = "Ollama Cloud API key not configured" }
+            }
+        } else {
+            return @{ success = $false; error = "Ollama Cloud API call failed: $_" }
+        }
+    }
 
     return @{
         success = $true
