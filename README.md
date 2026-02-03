@@ -5,14 +5,16 @@ K'UHUL Power Shell: Quantum SVG CLI artifacts for generating SVG-driven PowerShe
 
 ## Files
 
-- `KUHL-CORE.ps1` contains the K'UHUL core PowerShell interface and SVG-backed commands.
-- `Kμhμl.ps1` merges the K'UHUL core and Micronaut AGL runtime into a single script.
+- `Kμhμl.ps1` is the canonical T-UI entrypoint, merging the K'UHUL core, Micronaut AGL runtime,
+  and extended system emitters into a single script.
 - `kuhul-schema-core.v1.md` defines the frozen `kuhul://schema/core.v1` execution law.
-- `profile.ps1` provides a profile wrapper for loading the core script and setting up the prompt.
+- `profile.ps1` provides a profile wrapper for loading the canonical entrypoint and setting up the prompt.
+
+Remaining batch SVG runner scripts: none.
 
 ## Mx2LM Object Law Additions
 
-`KUHL-CORE.ps1` now includes object-law helpers for Mx2LM and SCXQ2:
+`Kμhμl.ps1` now includes object-law helpers for Mx2LM and SCXQ2:
 
 - `Get-Mx2LMEquation` prints the unified architecture definition.
 - `Get-QuantizationSchema` emits the quantization object schema.
