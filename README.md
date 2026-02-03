@@ -1,4 +1,5 @@
 # XMLCLI
+<img src=https://github.com/cannaseedus-bot/XMLCLI/blob/main/K%CE%BCh%CE%BCl.png>
 
 K'UHUL Power Shell: Quantum SVG CLI artifacts for generating SVG-driven PowerShell experiences.
 
