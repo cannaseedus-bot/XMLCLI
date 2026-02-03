@@ -1,5 +1,5 @@
 # Load K'UHUL Core
-. C:\kuhul\KUHL-CORE.ps1
+. C:\kuhul\Kμhμl.ps1
 
 # Set environment
 $env:KUHUL_MODE = "QUANTUM"
