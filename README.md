@@ -44,7 +44,12 @@ The ASX RAM Database PowerShell implementation can be emitted via:
 
 The ASX T-UI Terminal AI Workstation PowerShell implementation can be emitted via:
 
-- `Show-ASXTuiWorkstation` (alias: `kastui`) to output the full script.
+- `Show-ASXTuiWorkstation` (alias: `kastui`) to output the full script from `asx-tui.ps1`.
+
+To run it directly from this repo:
+
+- `./run-asx-tui.ps1` (PowerShell entrypoint)
+- Or execute `./asx-tui.ps1` if you want to call the script directly.
 
 ## K'UHUL Micronaut Factory
 
