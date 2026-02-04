@@ -340,6 +340,78 @@ function Ensure-ApiKey {
     return $plainKey
 }
 
+function Format-UserFacingError {
+    param(
+        [string]$Provider,
+        [string]$ErrorMessage,
+        [int]$StatusCode,
+        [string]$Endpoint,
+        [string]$Category
+    )
+
+    $providerLabel = if ($Provider) { $Provider } else { "provider" }
+    $details = $ErrorMessage
+    $nextSteps = @()
+
+    if (-not $Category) {
+        if ($StatusCode -in 401, 403 -or $ErrorMessage -match "Unauthorized|Forbidden|401|403|API key|invalid key|permission") {
+            $Category = "auth"
+        } elseif ($ErrorMessage -match "timed out|timeout|NameResolution|No such host|could not resolve|connection.*refused|actively refused|Network|502|503|504|temporarily unavailable|SSL|certificate") {
+            $Category = "network"
+        } elseif ($ErrorMessage -match "endpoint" -or $ErrorMessage -match "No endpoint configured") {
+            $Category = "endpoint"
+        } elseif ($ErrorMessage -match "Unsupported provider") {
+            $Category = "provider"
+        } else {
+            $Category = "unknown"
+        }
+    }
+
+    switch ($Category) {
+        "auth" {
+            $message = "Authorization failed for $providerLabel."
+            $nextSteps += "Set or update the $providerLabel API key when prompted."
+            if ($Provider -in @("openai-compatible", "custom")) {
+                $nextSteps += "Ensure api_keys.$providerLabel or provider_adapters headers include a valid Authorization token."
+            }
+        }
+        "network" {
+            $message = "Unable to reach the $providerLabel endpoint."
+            if ($Endpoint) {
+                $nextSteps += "Verify the endpoint URL: $Endpoint"
+            }
+            $nextSteps += "Check your network connection, VPN, or proxy settings."
+            $nextSteps += "Try switching to another provider or model."
+        }
+        "endpoint" {
+            $message = "No endpoint configured for $providerLabel."
+            $nextSteps += "Configure an endpoint in the model or provider adapter settings."
+        }
+        "provider" {
+            $message = "Unsupported provider selected: $providerLabel."
+            $nextSteps += "Choose a supported provider from the model list."
+        }
+        default {
+            $message = "Something went wrong while contacting $providerLabel."
+            $nextSteps += "Try again or switch providers if the issue persists."
+        }
+    }
+
+    if ($Provider -in @("local-ollama", "lmstudio", "mlc")) {
+        $nextSteps += "Confirm the local server is running and reachable."
+        if ($Endpoint) {
+            $nextSteps += "Check the local endpoint: $Endpoint"
+        }
+    }
+
+    return @{
+        message = $message
+        next_steps = $nextSteps
+        details = $details
+        category = $Category
+    }
+}
+
 function Get-Provider-AdapterConfig {
     param([string]$Provider)
 
@@ -542,6 +614,15 @@ function Start-Chat {
             $messages += @{ role = "assistant"; content = $response.content }
         } else {
             Write-TUI "Error: $($response.error)" -Type error
+            if ($response.details -and $response.details -ne $response.error) {
+                Write-TUI "Details: $($response.details)" -Type warning
+            }
+            if ($response.next_steps -and $response.next_steps.Count -gt 0) {
+                Write-TUI "Next steps:" -Type info
+                foreach ($step in $response.next_steps) {
+                    Write-Host "  - $step" -ForegroundColor Yellow
+                }
+            }
         }
     }
 
@@ -557,7 +638,8 @@ function Invoke-AI-Model {
         if ($providersNeedingKeys -contains $ModelInfo.provider) {
             $apiKey = Ensure-ApiKey -Provider $ModelInfo.provider
             if (-not $apiKey) {
-                return @{ success = $false; error = "Missing API key for provider: $($ModelInfo.provider)" }
+                $friendly = Format-UserFacingError -Provider $ModelInfo.provider -ErrorMessage "Missing API key for provider: $($ModelInfo.provider)" -Category "auth"
+                return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
             }
         }
 
@@ -599,11 +681,17 @@ function Invoke-AI-Model {
                 return Invoke-OpenAI-Compatible -ModelInfo $ModelInfo -Messages $Messages
             }
             default {
-                return @{ success = $false; error = "Unsupported provider: $($ModelInfo.provider)" }
+                $friendly = Format-UserFacingError -Provider $ModelInfo.provider -ErrorMessage "Unsupported provider: $($ModelInfo.provider)" -Category "provider"
+                return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
             }
         }
     } catch {
-        return @{ success = $false; error = "API call failed: $_" }
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider $ModelInfo.provider -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 }
 
@@ -612,7 +700,8 @@ function Invoke-Ollama-Cloud {
 
     $apiKey = Ensure-ApiKey -Provider "ollama-cloud"
     if (-not $apiKey) {
-        return @{ success = $false; error = "Ollama Cloud API key not configured" }
+        $friendly = Format-UserFacingError -Provider "ollama-cloud" -ErrorMessage "Ollama Cloud API key not configured" -Category "auth"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
@@ -649,16 +738,27 @@ function Invoke-Ollama-Cloud {
             $apiKey = Ensure-ApiKey -Provider "ollama-cloud" -ForcePrompt
             if ($apiKey) {
                 $headers["Authorization"] = "Bearer $apiKey"
-                $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
-                    -Method Post `
-                    -Headers $headers `
-                    -Body $body `
-                    -TimeoutSec 30
+                try {
+                    $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
+                        -Method Post `
+                        -Headers $headers `
+                        -Body $body `
+                        -TimeoutSec 30
+                } catch {
+                    $retryStatus = $null
+                    if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                        $retryStatus = $_.Exception.Response.StatusCode.value__
+                    }
+                    $friendly = Format-UserFacingError -Provider "ollama-cloud" -ErrorMessage $_.Exception.Message -StatusCode $retryStatus -Endpoint $ModelInfo.endpoint
+                    return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+                }
             } else {
-                return @{ success = $false; error = "Ollama Cloud API key not configured" }
+                $friendly = Format-UserFacingError -Provider "ollama-cloud" -ErrorMessage "Ollama Cloud API key not configured" -Category "auth"
+                return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
             }
         } else {
-            return @{ success = $false; error = "Ollama Cloud API call failed: $_" }
+            $friendly = Format-UserFacingError -Provider "ollama-cloud" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+            return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
         }
     }
 
@@ -690,11 +790,20 @@ function Invoke-Local-Ollama {
         }
     } | ConvertTo-Json
 
-    $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
-        -Method Post `
-        -Headers @{"Content-Type" = "application/json"} `
-        -Body $body `
-        -TimeoutSec 60
+    try {
+        $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
+            -Method Post `
+            -Headers @{"Content-Type" = "application/json"} `
+            -Body $body `
+            -TimeoutSec 60
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "local-ollama" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 
     return @{
         success = $true
@@ -735,7 +844,8 @@ function Invoke-OpenAI {
 
     $apiKey = Ensure-ApiKey -Provider "openai"
     if (-not $apiKey) {
-        return @{ success = $false; error = "OpenAI API key not configured" }
+        $friendly = Format-UserFacingError -Provider "openai" -ErrorMessage "OpenAI API key not configured" -Category "auth"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
@@ -744,7 +854,16 @@ function Invoke-OpenAI {
         "Content-Type" = "application/json"
     }
 
-    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    try {
+        return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "openai" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 }
 
 function Invoke-Anthropic {
@@ -752,7 +871,8 @@ function Invoke-Anthropic {
 
     $apiKey = Ensure-ApiKey -Provider "anthropic"
     if (-not $apiKey) {
-        return @{ success = $false; error = "Anthropic API key not configured" }
+        $friendly = Format-UserFacingError -Provider "anthropic" -ErrorMessage "Anthropic API key not configured" -Category "auth"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
@@ -783,11 +903,20 @@ function Invoke-Anthropic {
         "Content-Type" = "application/json"
     }
 
-    $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
-        -Method Post `
-        -Headers $headers `
-        -Body ($body | ConvertTo-Json -Depth 10) `
-        -TimeoutSec 60
+    try {
+        $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
+            -Method Post `
+            -Headers $headers `
+            -Body ($body | ConvertTo-Json -Depth 10) `
+            -TimeoutSec 60
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "anthropic" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 
     return @{
         success = $true
@@ -801,7 +930,8 @@ function Invoke-Google {
 
     $apiKey = Ensure-ApiKey -Provider "google"
     if (-not $apiKey) {
-        return @{ success = $false; error = "Google API key not configured" }
+        $friendly = Format-UserFacingError -Provider "google" -ErrorMessage "Google API key not configured" -Category "auth"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $systemPrompt = ($Messages | Where-Object { $_.role -eq "system" } | ForEach-Object { $_.content }) -join "`n"
@@ -844,11 +974,20 @@ function Invoke-Google {
         $endpoint = "$endpoint?key=$apiKey"
     }
 
-    $response = Invoke-RestMethod -Uri $endpoint `
-        -Method Post `
-        -Headers @{"Content-Type" = "application/json"} `
-        -Body $body `
-        -TimeoutSec 60
+    try {
+        $response = Invoke-RestMethod -Uri $endpoint `
+            -Method Post `
+            -Headers @{"Content-Type" = "application/json"} `
+            -Body $body `
+            -TimeoutSec 60
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "google" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 
     return @{
         success = $true
@@ -861,7 +1000,8 @@ function Invoke-Mistral {
 
     $apiKey = Ensure-ApiKey -Provider "mistral"
     if (-not $apiKey) {
-        return @{ success = $false; error = "Mistral API key not configured" }
+        $friendly = Format-UserFacingError -Provider "mistral" -ErrorMessage "Mistral API key not configured" -Category "auth"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
@@ -870,7 +1010,16 @@ function Invoke-Mistral {
         "Content-Type" = "application/json"
     }
 
-    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    try {
+        return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "mistral" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 }
 
 function Invoke-Groq {
@@ -878,7 +1027,8 @@ function Invoke-Groq {
 
     $apiKey = Ensure-ApiKey -Provider "groq"
     if (-not $apiKey) {
-        return @{ success = $false; error = "Groq API key not configured" }
+        $friendly = Format-UserFacingError -Provider "groq" -ErrorMessage "Groq API key not configured" -Category "auth"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
@@ -887,7 +1037,16 @@ function Invoke-Groq {
         "Content-Type" = "application/json"
     }
 
-    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    try {
+        return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "groq" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 }
 
 function Invoke-DeepSeek {
@@ -895,7 +1054,8 @@ function Invoke-DeepSeek {
 
     $apiKey = Ensure-ApiKey -Provider "deepseek"
     if (-not $apiKey) {
-        return @{ success = $false; error = "DeepSeek API key not configured" }
+        $friendly = Format-UserFacingError -Provider "deepseek" -ErrorMessage "DeepSeek API key not configured" -Category "auth"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
@@ -904,7 +1064,16 @@ function Invoke-DeepSeek {
         "Content-Type" = "application/json"
     }
 
-    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    try {
+        return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "deepseek" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 }
 
 function Invoke-LMStudio {
@@ -915,7 +1084,16 @@ function Invoke-LMStudio {
         "Content-Type" = "application/json"
     }
 
-    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    try {
+        return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "lmstudio" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 }
 
 function Invoke-MLC {
@@ -926,7 +1104,16 @@ function Invoke-MLC {
         "Content-Type" = "application/json"
     }
 
-    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    try {
+        return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider "mlc" -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $ModelInfo.endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 }
 
 function Invoke-OpenAI-Compatible {
@@ -944,7 +1131,8 @@ function Invoke-OpenAI-Compatible {
         $endpoint = $null
     }
     if (-not $endpoint) {
-        return @{ success = $false; error = "No endpoint configured for $($ModelInfo.provider)" }
+        $friendly = Format-UserFacingError -Provider $ModelInfo.provider -ErrorMessage "No endpoint configured for $($ModelInfo.provider)" -Category "endpoint"
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
     }
 
     $headers = @{
@@ -961,7 +1149,16 @@ function Invoke-OpenAI-Compatible {
     }
 
     $modelName = $script:config.active_model.Split(":")[1]
-    return Invoke-OpenAI-ChatCompletion -Endpoint $endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    try {
+        return Invoke-OpenAI-ChatCompletion -Endpoint $endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
+        $friendly = Format-UserFacingError -Provider $ModelInfo.provider -ErrorMessage $_.Exception.Message -StatusCode $statusCode -Endpoint $endpoint
+        return @{ success = $false; error = $friendly.message; next_steps = $friendly.next_steps; details = $friendly.details }
+    }
 }
 
 function Save-Chat {
