@@ -3824,7 +3824,7 @@ function Show-ASXTuiWorkstation {
 
     $ASXTuiWorkstation = @"
 # ASX-TUI-AI-WORKSTATION.ps1
-# Advanced Terminal AI Workspace with Ollama Cloud + Local Models + File Operations
+# Advanced Terminal AI Workspace with Multi-Provider Models + Local Runtimes + File Operations
 
 # ============================================================================
 # CONFIGURATION
@@ -3879,20 +3879,103 @@ $DEFAULT_MODELS = @{
         }
     }
 
-    "openai-compatible" = @{
-        "gpt-4" = @{
-            name = "GPT-4"
+    "openai" = @{
+        "gpt-4o-mini" = @{
+            name = "GPT-4o Mini"
             provider = "openai"
             endpoint = "https://api.openai.com/v1/chat/completions"
-            context = 8192
+            context = 128000
             capabilities = @("chat", "code", "reasoning", "creative")
         }
-        "claude-3" = @{
-            name = "Claude 3 Opus"
+    }
+
+    "anthropic" = @{
+        "claude-3-5-sonnet" = @{
+            name = "Claude 3.5 Sonnet"
             provider = "anthropic"
             endpoint = "https://api.anthropic.com/v1/messages"
             context = 200000
             capabilities = @("chat", "analysis", "long-context")
+        }
+    }
+
+    "google" = @{
+        "gemini-1.5-pro" = @{
+            name = "Gemini 1.5 Pro"
+            provider = "google"
+            endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+            context = 1048576
+            capabilities = @("chat", "analysis", "long-context")
+        }
+    }
+
+    "mistral" = @{
+        "mistral-large" = @{
+            name = "Mistral Large"
+            provider = "mistral"
+            endpoint = "https://api.mistral.ai/v1/chat/completions"
+            context = 128000
+            capabilities = @("chat", "reasoning", "code")
+        }
+    }
+
+    "groq" = @{
+        "llama3-70b" = @{
+            name = "Llama 3 70B (Groq)"
+            provider = "groq"
+            endpoint = "https://api.groq.com/openai/v1/chat/completions"
+            context = 8192
+            capabilities = @("chat", "reasoning", "code")
+        }
+    }
+
+    "deepseek" = @{
+        "deepseek-chat" = @{
+            name = "DeepSeek Chat"
+            provider = "deepseek"
+            endpoint = "https://api.deepseek.com/chat/completions"
+            context = 128000
+            capabilities = @("chat", "reasoning", "code")
+        }
+    }
+
+    "lmstudio" = @{
+        "local-openai" = @{
+            name = "LM Studio (OpenAI Compatible)"
+            provider = "lmstudio"
+            endpoint = "http://localhost:1234/v1/chat/completions"
+            context = 8192
+            capabilities = @("chat", "local")
+        }
+    }
+
+    "mlc" = @{
+        "local-openai" = @{
+            name = "MLC (OpenAI Compatible)"
+            provider = "mlc"
+            endpoint = "http://localhost:8000/v1/chat/completions"
+            context = 8192
+            capabilities = @("chat", "local")
+        }
+    }
+
+    "openai-compatible" = @{
+        "custom" = @{
+            name = "OpenAI-Compatible (Custom)"
+            provider = "openai-compatible"
+            endpoint = "configured"
+            context = 8192
+            capabilities = @("chat", "custom")
+        }
+    }
+
+    "custom" = @{
+        "custom" = @{
+            name = "Custom HTTP Adapter"
+            provider = "custom"
+            endpoint = "configured"
+            context = 8192
+            capabilities = @("chat", "custom")
         }
     }
 }
@@ -3970,7 +4053,9 @@ function Initialize-TUI {
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  Features:" -ForegroundColor White
-    Write-Host "  • Ollama Cloud + Local Models" -ForegroundColor Gray
+    Write-Host "  • Ollama Cloud + OpenAI + Anthropic + Google + Mistral + Groq + DeepSeek" -ForegroundColor Gray
+    Write-Host "  • Local runtimes (Ollama, LM Studio, MLC)" -ForegroundColor Gray
+    Write-Host "  • OpenAI-compatible + Custom HTTP adapters" -ForegroundColor Gray
     Write-Host "  • File Creation & Editing" -ForegroundColor Gray
     Write-Host "  • Code Generation & Analysis" -ForegroundColor Gray
     Write-Host "  • Multi-Model Chat Sessions" -ForegroundColor Gray
@@ -3996,6 +4081,16 @@ function Initialize-TUI {
             max_history = 1000
             auto_save = $true
             api_keys = @{}
+            provider_adapters = @{
+                "openai-compatible" = @{
+                    endpoint = ""
+                    headers = @{}
+                }
+                "custom" = @{
+                    endpoint = ""
+                    headers = @{}
+                }
+            }
         }
         Save-Config -Config $config
         Write-TUI "Default configuration created" -Type success
@@ -4018,6 +4113,12 @@ function Get-ApiKey-ConfigKey {
         "openai" { return "openai" }
         "anthropic" { return "anthropic" }
         "google" { return "google" }
+        "mistral" { return "mistral" }
+        "groq" { return "groq" }
+        "deepseek" { return "deepseek" }
+        "lmstudio" { return "lmstudio" }
+        "mlc" { return "mlc" }
+        "openai-compatible" { return "openai-compatible" }
         "custom" { return "custom" }
         default { return $Provider }
     }
@@ -4062,6 +4163,16 @@ function Ensure-ApiKey {
     Save-Config -Config $script:config
     Write-TUI "$Provider API key saved" -Type success
     return $plainKey
+}
+
+function Get-Provider-AdapterConfig {
+    param([string]$Provider)
+
+    if ($script:config.ContainsKey("provider_adapters") -and $script:config.provider_adapters.ContainsKey($Provider)) {
+        return $script:config.provider_adapters[$Provider]
+    }
+
+    return @{}
 }
 
 function Get-Model-Info {
@@ -4183,7 +4294,7 @@ function Test-Model-Connection {
 function Add-Custom-Model {
     Write-TUI "Adding custom model..." -Type model
 
-    $provider = Read-Host "Provider (e.g., 'openai', 'anthropic', 'custom')"
+    $provider = Read-Host "Provider (e.g., 'openai', 'anthropic', 'google', 'mistral', 'groq', 'deepseek', 'openai-compatible', 'custom')"
     $modelName = Read-Host "Model name"
     $endpoint = Read-Host "API endpoint"
     $context = Read-Host "Context length" -AsSecureString | ConvertFrom-SecureString
@@ -4267,7 +4378,7 @@ function Invoke-AI-Model {
     param($ModelInfo, $Messages)
 
     try {
-        $providersNeedingKeys = @("ollama-cloud", "openai", "anthropic", "google", "custom")
+        $providersNeedingKeys = @("ollama-cloud", "openai", "anthropic", "google", "mistral", "groq", "deepseek")
         if ($providersNeedingKeys -contains $ModelInfo.provider) {
             $apiKey = Ensure-ApiKey -Provider $ModelInfo.provider
             if (-not $apiKey) {
@@ -4287,6 +4398,30 @@ function Invoke-AI-Model {
             }
             "anthropic" {
                 return Invoke-Anthropic -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "google" {
+                return Invoke-Google -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "mistral" {
+                return Invoke-Mistral -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "groq" {
+                return Invoke-Groq -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "deepseek" {
+                return Invoke-DeepSeek -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "lmstudio" {
+                return Invoke-LMStudio -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "mlc" {
+                return Invoke-MLC -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "openai-compatible" {
+                return Invoke-OpenAI-Compatible -ModelInfo $ModelInfo -Messages $Messages
+            }
+            "custom" {
+                return Invoke-OpenAI-Compatible -ModelInfo $ModelInfo -Messages $Messages
             }
             default {
                 return @{ success = $false; error = "Unsupported provider: $($ModelInfo.provider)" }
@@ -4390,6 +4525,268 @@ function Invoke-Local-Ollama {
         success = $true
         content = $response.response
     }
+}
+
+function Invoke-OpenAI-ChatCompletion {
+    param(
+        [string]$Endpoint,
+        [hashtable]$Headers,
+        [string]$ModelName,
+        $Messages
+    )
+
+    $body = @{
+        model = $ModelName
+        messages = $Messages
+        temperature = 0.7
+        stream = $false
+    } | ConvertTo-Json -Depth 10
+
+    $response = Invoke-RestMethod -Uri $Endpoint `
+        -Method Post `
+        -Headers $Headers `
+        -Body $body `
+        -TimeoutSec 60
+
+    return @{
+        success = $true
+        content = $response.choices[0].message.content
+        usage = $response.usage
+    }
+}
+
+function Invoke-OpenAI {
+    param($ModelInfo, $Messages)
+
+    $apiKey = Ensure-ApiKey -Provider "openai"
+    if (-not $apiKey) {
+        return @{ success = $false; error = "OpenAI API key not configured" }
+    }
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    $headers = @{
+        "Authorization" = "Bearer $apiKey"
+        "Content-Type" = "application/json"
+    }
+
+    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+}
+
+function Invoke-Anthropic {
+    param($ModelInfo, $Messages)
+
+    $apiKey = Ensure-ApiKey -Provider "anthropic"
+    if (-not $apiKey) {
+        return @{ success = $false; error = "Anthropic API key not configured" }
+    }
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    $systemPrompt = ($Messages | Where-Object { $_.role -eq "system" } | ForEach-Object { $_.content }) -join "`n"
+    $anthropicMessages = @()
+    foreach ($msg in $Messages) {
+        if ($msg.role -eq "system") {
+            continue
+        }
+        $anthropicMessages += @{
+            role = $msg.role
+            content = $msg.content
+        }
+    }
+
+    $body = @{
+        model = $modelName
+        max_tokens = 1024
+        messages = $anthropicMessages
+    }
+    if ($systemPrompt) {
+        $body["system"] = $systemPrompt
+    }
+
+    $headers = @{
+        "x-api-key" = $apiKey
+        "anthropic-version" = "2023-06-01"
+        "Content-Type" = "application/json"
+    }
+
+    $response = Invoke-RestMethod -Uri $ModelInfo.endpoint `
+        -Method Post `
+        -Headers $headers `
+        -Body ($body | ConvertTo-Json -Depth 10) `
+        -TimeoutSec 60
+
+    return @{
+        success = $true
+        content = $response.content[0].text
+        usage = $response.usage
+    }
+}
+
+function Invoke-Google {
+    param($ModelInfo, $Messages)
+
+    $apiKey = Ensure-ApiKey -Provider "google"
+    if (-not $apiKey) {
+        return @{ success = $false; error = "Google API key not configured" }
+    }
+
+    $systemPrompt = ($Messages | Where-Object { $_.role -eq "system" } | ForEach-Object { $_.content }) -join "`n"
+    $contents = @()
+    $systemApplied = $false
+
+    foreach ($msg in $Messages) {
+        if ($msg.role -eq "system") {
+            continue
+        }
+
+        $role = if ($msg.role -eq "assistant") { "model" } else { "user" }
+        $text = $msg.content
+        if (-not $systemApplied -and $systemPrompt -and $role -eq "user") {
+            $text = "$systemPrompt`n`n$text"
+            $systemApplied = $true
+        }
+
+        $contents += @{
+            role = $role
+            parts = @(@{ text = $text })
+        }
+    }
+
+    if (-not $contents) {
+        $contents = @(@{
+                role = "user"
+                parts = @(@{ text = $systemPrompt })
+            })
+    }
+
+    $body = @{
+        contents = $contents
+    } | ConvertTo-Json -Depth 10
+
+    $endpoint = $ModelInfo.endpoint
+    if ($endpoint -match "\?") {
+        $endpoint = "$endpoint&key=$apiKey"
+    } else {
+        $endpoint = "$endpoint?key=$apiKey"
+    }
+
+    $response = Invoke-RestMethod -Uri $endpoint `
+        -Method Post `
+        -Headers @{"Content-Type" = "application/json"} `
+        -Body $body `
+        -TimeoutSec 60
+
+    return @{
+        success = $true
+        content = $response.candidates[0].content.parts[0].text
+    }
+}
+
+function Invoke-Mistral {
+    param($ModelInfo, $Messages)
+
+    $apiKey = Ensure-ApiKey -Provider "mistral"
+    if (-not $apiKey) {
+        return @{ success = $false; error = "Mistral API key not configured" }
+    }
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    $headers = @{
+        "Authorization" = "Bearer $apiKey"
+        "Content-Type" = "application/json"
+    }
+
+    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+}
+
+function Invoke-Groq {
+    param($ModelInfo, $Messages)
+
+    $apiKey = Ensure-ApiKey -Provider "groq"
+    if (-not $apiKey) {
+        return @{ success = $false; error = "Groq API key not configured" }
+    }
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    $headers = @{
+        "Authorization" = "Bearer $apiKey"
+        "Content-Type" = "application/json"
+    }
+
+    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+}
+
+function Invoke-DeepSeek {
+    param($ModelInfo, $Messages)
+
+    $apiKey = Ensure-ApiKey -Provider "deepseek"
+    if (-not $apiKey) {
+        return @{ success = $false; error = "DeepSeek API key not configured" }
+    }
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    $headers = @{
+        "Authorization" = "Bearer $apiKey"
+        "Content-Type" = "application/json"
+    }
+
+    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+}
+
+function Invoke-LMStudio {
+    param($ModelInfo, $Messages)
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    $headers = @{
+        "Content-Type" = "application/json"
+    }
+
+    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+}
+
+function Invoke-MLC {
+    param($ModelInfo, $Messages)
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    $headers = @{
+        "Content-Type" = "application/json"
+    }
+
+    return Invoke-OpenAI-ChatCompletion -Endpoint $ModelInfo.endpoint -Headers $headers -ModelName $modelName -Messages $Messages
+}
+
+function Invoke-OpenAI-Compatible {
+    param($ModelInfo, $Messages)
+
+    $adapterConfig = Get-Provider-AdapterConfig -Provider $ModelInfo.provider
+    $endpoint = $adapterConfig.endpoint
+    if ($endpoint -eq "configured") {
+        $endpoint = $null
+    }
+    if (-not $endpoint) {
+        $endpoint = $ModelInfo.endpoint
+    }
+    if ($endpoint -eq "configured") {
+        $endpoint = $null
+    }
+    if (-not $endpoint) {
+        return @{ success = $false; error = "No endpoint configured for $($ModelInfo.provider)" }
+    }
+
+    $headers = @{
+        "Content-Type" = "application/json"
+    }
+    if ($adapterConfig.headers) {
+        foreach ($key in $adapterConfig.headers.Keys) {
+            $headers[$key] = $adapterConfig.headers[$key]
+        }
+    }
+
+    if ($script:config.api_keys.ContainsKey($ModelInfo.provider) -and -not $headers.ContainsKey("Authorization")) {
+        $headers["Authorization"] = "Bearer $($script:config.api_keys[$ModelInfo.provider])"
+    }
+
+    $modelName = $script:config.active_model.Split(":")[1]
+    return Invoke-OpenAI-ChatCompletion -Endpoint $endpoint -Headers $headers -ModelName $modelName -Messages $Messages
 }
 
 function Save-Chat {
@@ -4599,7 +4996,17 @@ function Show-Config {
 function Update-API-Keys {
     Write-TUI "Update API Keys" -Type system
 
-    $providers = @("ollama-cloud", "openai", "anthropic", "google", "custom")
+    $providers = @(
+        "ollama-cloud",
+        "openai",
+        "anthropic",
+        "google",
+        "mistral",
+        "groq",
+        "deepseek",
+        "openai-compatible",
+        "custom"
+    )
 
     foreach ($provider in $providers) {
         $setKey = Read-Host "Set $provider API key? (y/n)"
@@ -5012,8 +5419,10 @@ ASX T-UI Architecture
 ├── Model Layer
 │   ├── Ollama Cloud (Primary)
 │   ├── Local Ollama (Fallback)
-│   ├── OpenAI Compatible
-│   └── Anthropic Claude
+│   ├── OpenAI / Anthropic / Google
+│   ├── Mistral / Groq / DeepSeek
+│   ├── LM Studio / MLC (Local)
+│   └── OpenAI-Compatible + Custom HTTP Adapter
 ├── File System Layer
 │   ├── Workspace Management
 │   ├── AI-Assisted Editing
@@ -5114,6 +5523,20 @@ Edit `~\.asx-tui\config.json` to customize:
   "auto_save": true,
   "max_context": 8000,
   "temperature": 0.7,
+  "provider_adapters": {
+    "openai-compatible": {
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "headers": {
+        "Authorization": "Bearer sk-your-token"
+      }
+    },
+    "custom": {
+      "endpoint": "https://internal.ai/api/v1/chat",
+      "headers": {
+        "x-api-key": "your-custom-key"
+      }
+    }
+  },
   "custom_models": {
     "my-company-model": {
       "endpoint": "https://internal.ai/api/v1/chat",
@@ -5134,7 +5557,7 @@ Edit `~\.asx-tui\config.json` to customize:
 
 ---
 
-This is a complete terminal AI workstation focused on Ollama Cloud with local fallback, file operations, and code generation - all in a beautiful T-UI interface.
+This is a complete terminal AI workstation with multi-provider AI support (cloud + local), file operations, and code generation - all in a beautiful T-UI interface.
 "@
 
     Write-Quantum $ASXTuiWorkstation -Raw
