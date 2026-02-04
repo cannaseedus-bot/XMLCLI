@@ -51,6 +51,18 @@ To run it directly from this repo:
 - `./run-asx-tui.ps1` (PowerShell entrypoint)
 - Or execute `./asx-tui.ps1` if you want to call the script directly.
 
+## AGL Inference App Builder T-UI
+
+The AGL Inference App Builder T-UI PowerShell implementation is available as:
+
+- `AGL-TUI.ps1` for the full terminal UI implementation.
+- `AGL-PROFILE.ps1` for an auto-load profile that sets environment defaults.
+
+To run it directly from this repo:
+
+- `./AGL-TUI.ps1` (script entrypoint)
+- Or source `./AGL-PROFILE.ps1` to load it into your PowerShell session.
+
 ## K'UHUL Micronaut Factory
 
 The K'UHUL Micronaut Factory PowerShell module can be emitted via:
