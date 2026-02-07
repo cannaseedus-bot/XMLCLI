@@ -34,6 +34,33 @@ The PrimeOS Micronaut Factory PowerShell edition can be emitted via:
 
 - `Show-PrimeOSMicronautFactory` (alias: `kprimeos`) to output the full script.
 
+## Micronaut SCO/1 Object Layout
+
+The Micronaut JS placeholder has been replaced by a sealed, file-centric object layout and a
+PowerShell orchestrator. The canonical object boundary lives under `micronaut/`:
+
+```
+micronaut/
+├─ micronaut.s7
+├─ object.toml
+├─ semantics.xjson
+├─ brains/
+│  ├─ trigrams.json
+│  ├─ bigrams.json
+│  └─ meta-intent-map.json
+├─ io/
+│  ├─ chat.txt
+│  ├─ stream.txt
+│  └─ snapshot/
+├─ trace/
+│  └─ scxq2.trace
+└─ proof/
+   └─ scxq2.proof
+```
+
+The PowerShell orchestrator (`micronaut/micronaut.ps1`) only routes files: it appends `chat.txt`
+records and streams append-only projections into `stream.txt`.
+
 ## ASX RAM Database
 
 The ASX RAM Database PowerShell implementation can be emitted via:

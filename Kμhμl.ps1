@@ -4178,7 +4178,7 @@ function Import-FromGitHub {
             @{name="package.json"; type="json"},
             @{name="index.html"; type="html"},
             @{name="style.css"; type="css"},
-            @{name="app.js"; type="javascript"}
+            @{name="app.ps1"; type="powershell"}
         )
     }
 

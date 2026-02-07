@@ -557,9 +557,9 @@ PORT={3}
   "name": "{0}",
   "version": "1.0.0",
   "description": "{1}",
-  "main": "index.js",
+  "main": "micronaut.ps1",
   "scripts": {
-    "start": "node index.js",
+    "start": "pwsh -File micronaut.ps1",
     "test": "echo 'No tests specified'"
   },
   "dependencies": { },
