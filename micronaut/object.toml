@@ -1,0 +1,16 @@
+[object]
+name = "micronaut"
+standard = "SCO/1"
+compliance = ["KUHUL-TSG", "SCXQ7"]
+state = "INIT"
+
+[paths]
+brains = "brains"
+io = "io"
+trace = "trace"
+proof = "proof"
+
+[io]
+chat = "io/chat.txt"
+stream = "io/stream.txt"
+snapshot = "io/snapshot"

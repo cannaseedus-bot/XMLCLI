@@ -1,0 +1,6 @@
+{
+  "$schema": "kuhul://schema/kuhul-tsg.v1",
+  "object": "micronaut",
+  "law": "KUHUL-TSG",
+  "notes": "Frozen semantics surface for projection/collapse."
+}
