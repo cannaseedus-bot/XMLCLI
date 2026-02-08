@@ -8,6 +8,7 @@ K'UHUL Power Shell: Quantum SVG CLI artifacts for generating SVG-driven PowerShe
 - `Kμhμl.ps1` is the canonical T-UI entrypoint, merging the K'UHUL core, Micronaut AGL runtime,
   and extended system emitters into a single script.
 - `kuhul-schema-core.v1.md` defines the frozen `kuhul://schema/core.v1` execution law.
+- `svg-tensor-cluster-batch.v1.md` defines deterministic, non-executing SVG-Tensor cluster batch files.
 - `profile.ps1` provides a profile wrapper for loading the canonical entrypoint and setting up the prompt.
 
 Remaining batch SVG runner scripts: none.
